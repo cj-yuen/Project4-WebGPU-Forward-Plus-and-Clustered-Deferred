@@ -15,7 +15,10 @@ struct LightSet {
 struct CameraUniforms {
     // TODO-1.3: add an entry for the view proj mat (of type mat4x4f)
     
-    viewProjMat: mat4x4f
+    viewProjMat: mat4x4f,
+    inverseProjMat: mat4x4f,
+    viewMat: mat4x4f,
+    nearFarScreenSize: vec4f    // x = near, y = far, z = screenWidth, w = screenHeight
 }
 
 // CHECKITOUT: this special attenuation function ensures lights don't affect geometry outside the maximum light radius
