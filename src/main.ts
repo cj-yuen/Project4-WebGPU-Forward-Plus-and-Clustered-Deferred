@@ -33,6 +33,20 @@ const stage = new Stage(scene, lights, camera, stats);
 
 var renderer: Renderer | undefined;
 
+// bloom state
+const bloomState = {
+    enabled: false,
+    threshold: 0.6,
+    intensity: 1.2,
+};
+
+function applyBloomToActiveRenderer() {
+    if (renderer instanceof ForwardPlusRenderer) {
+        renderer.setBloomEnabled(bloomState.enabled);
+        renderer.setBloomParams(bloomState.threshold, bloomState.intensity);
+    }
+}
+
 function setRenderer(mode: string) {
     renderer?.stop();
 
@@ -47,10 +61,31 @@ function setRenderer(mode: string) {
             renderer = new ClusteredDeferredRenderer(stage);
             break;
     }
+
+    // re-apply bloom settings after renderer switch
+    applyBloomToActiveRenderer();
+    const bloomSupported = renderer instanceof ForwardPlusRenderer;
+    bloomFolder.domElement.style.opacity = bloomSupported ? '1' : '0.4';
+    bloomFolder.domElement.style.pointerEvents = bloomSupported ? 'auto' : 'none';
 }
 
 const renderModes = { naive: 'naive', forwardPlus: 'forward+', clusteredDeferred: 'clustered deferred' };
 let renderModeController = gui.add({ mode: renderModes.naive }, 'mode', renderModes);
 renderModeController.onChange(setRenderer);
+
+// bloom GUI folder
+const bloomFolder = gui.addFolder('Bloom (Forward+ only)');
+
+bloomFolder.add(bloomState, 'enabled').name('Enable').onChange(() => {
+    applyBloomToActiveRenderer();
+});
+
+bloomFolder.add(bloomState, 'threshold', 0.0, 2.0, 0.05).name('Threshold').onChange(() => {
+    applyBloomToActiveRenderer();
+});
+
+bloomFolder.add(bloomState, 'intensity', 0.0, 3.0, 0.05).name('Intensity').onChange(() => {
+    applyBloomToActiveRenderer();
+});
 
 setRenderer(renderModeController.getValue());
