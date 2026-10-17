@@ -33,17 +33,23 @@ const stage = new Stage(scene, lights, camera, stats);
 
 var renderer: Renderer | undefined;
 
-// bloom state
-const bloomState = {
-    enabled: false,
-    threshold: 0.6,
-    intensity: 1.2,
+// post-processing state
+const postState = {
+    bloomEnabled: false,
+    bloomThreshold: 0.6,
+    bloomIntensity: 1.2,
+    toonEnabled: false,
+    toonBands: 4.0,
+    toonEdgeThreshold: 0.02,
+    toonOutline: 1.0,
 };
 
-function applyBloomToActiveRenderer() {
+function applyPostProcess() {
     if (renderer instanceof ForwardPlusRenderer) {
-        renderer.setBloomEnabled(bloomState.enabled);
-        renderer.setBloomParams(bloomState.threshold, bloomState.intensity);
+        renderer.setBloomEnabled(postState.bloomEnabled);
+        renderer.setBloomParams(postState.bloomThreshold, postState.bloomIntensity);
+        renderer.setToonEnabled(postState.toonEnabled);
+        renderer.setToonParams(postState.toonBands, postState.toonEdgeThreshold, postState.toonOutline);
     }
 }
 
@@ -62,30 +68,30 @@ function setRenderer(mode: string) {
             break;
     }
 
-    // re-apply bloom settings after renderer switch
-    applyBloomToActiveRenderer();
-    const bloomSupported = renderer instanceof ForwardPlusRenderer;
-    bloomFolder.domElement.style.opacity = bloomSupported ? '1' : '0.4';
-    bloomFolder.domElement.style.pointerEvents = bloomSupported ? 'auto' : 'none';
+    // apply post-processing settings after renderer switch
+    applyPostProcess();
+
+    const supported = renderer instanceof ForwardPlusRenderer;
+    postFolder.domElement.style.opacity = supported ? '1' : '0.4';
+    postFolder.domElement.style.pointerEvents = supported ? 'auto' : 'none';
 }
 
 const renderModes = { naive: 'naive', forwardPlus: 'forward+', clusteredDeferred: 'clustered deferred' };
 let renderModeController = gui.add({ mode: renderModes.naive }, 'mode', renderModes);
 renderModeController.onChange(setRenderer);
 
-// bloom GUI folder
-const bloomFolder = gui.addFolder('Bloom (Forward+ only)');
+// post-processing GUI folder
+const postFolder = gui.addFolder('Post-Processing (Forward+ only)');
 
-bloomFolder.add(bloomState, 'enabled').name('Enable').onChange(() => {
-    applyBloomToActiveRenderer();
-});
+const bloomFolder = postFolder.addFolder('Bloom');
+bloomFolder.add(postState, 'bloomEnabled').name('Enable').onChange(applyPostProcess);
+bloomFolder.add(postState, 'bloomThreshold', 0.0, 2.0, 0.05).name('Threshold').onChange(applyPostProcess);
+bloomFolder.add(postState, 'bloomIntensity', 0.0, 3.0, 0.05).name('Intensity').onChange(applyPostProcess);
 
-bloomFolder.add(bloomState, 'threshold', 0.0, 2.0, 0.05).name('Threshold').onChange(() => {
-    applyBloomToActiveRenderer();
-});
-
-bloomFolder.add(bloomState, 'intensity', 0.0, 3.0, 0.05).name('Intensity').onChange(() => {
-    applyBloomToActiveRenderer();
-});
+const toonFolder = postFolder.addFolder('Toon');
+toonFolder.add(postState, 'toonEnabled').name('Enable').onChange(applyPostProcess);
+toonFolder.add(postState, 'toonBands', 2, 8, 1).name('Bands').onChange(applyPostProcess);
+toonFolder.add(postState, 'toonEdgeThreshold', 0.001, 0.1, 0.001).name('Edge Threshold').onChange(applyPostProcess);
+toonFolder.add(postState, 'toonOutline', 0.0, 1.0, 0.05).name('Outline').onChange(applyPostProcess);
 
 setRenderer(renderModeController.getValue());

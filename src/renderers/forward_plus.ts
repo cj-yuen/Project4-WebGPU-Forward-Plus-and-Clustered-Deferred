@@ -18,12 +18,19 @@ export class ForwardPlusRenderer extends renderer.Renderer {
     bloomThreshold = 0.6;
     bloomIntensity = 1.2;
 
+    // toon state
+    toonEnabled = false;
+    toonNumBands = 4.0;
+    toonEdgeThreshold = 0.02;
+    toonOutlineStrength = 1.0;
+
     // scene + post-processing textures
     sceneColorTexture: GPUTexture;
     brightTexture: GPUTexture;
     blurHTexture: GPUTexture;
     blurVTexture: GPUTexture;
     finalTexture: GPUTexture;
+    toonTexture: GPUTexture;
 
     // compute pipelines
     brightPipeline: GPUComputePipeline;
@@ -42,10 +49,17 @@ export class ForwardPlusRenderer extends renderer.Renderer {
     blurVUniformBuffer: GPUBuffer;
     compositeUniformBuffer: GPUBuffer;
 
+    // toon
+    toonPipeline: GPUComputePipeline;
+    toonSceneBindGroup: GPUBindGroup;
+    toonFinalBindGroup: GPUBindGroup;
+    toonUniformBuffer: GPUBuffer;
+
     // blit
     blitPipeline: GPURenderPipeline;
     blitSceneBindGroup: GPUBindGroup;
     blitFinalBindGroup: GPUBindGroup;
+    blitToonBindGroup: GPUBindGroup;
 
     constructor(stage: Stage) {
         super(stage);
@@ -79,7 +93,7 @@ export class ForwardPlusRenderer extends renderer.Renderer {
         this.depthTexture = renderer.device.createTexture({
             size: [renderer.canvas.width, renderer.canvas.height],
             format: "depth24plus",
-            usage: GPUTextureUsage.RENDER_ATTACHMENT
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
         });
 
         this.depthTextureView = this.depthTexture.createView();
@@ -129,6 +143,13 @@ export class ForwardPlusRenderer extends renderer.Renderer {
 
         this.finalTexture = renderer.device.createTexture({
             label: "bloom final",
+            size: [width, height],
+            format: "rgba8unorm",
+            usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
+        });
+
+        this.toonTexture = renderer.device.createTexture({
+            label: "toon output",
             size: [width, height],
             format: "rgba8unorm",
             usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
@@ -233,7 +254,7 @@ export class ForwardPlusRenderer extends renderer.Renderer {
             }
         });
 
-        // composite 
+        // composite (bloom)
         this.compositeUniformBuffer = renderer.device.createBuffer({
             label: "composite uniform",
             size: 16,
@@ -277,6 +298,60 @@ export class ForwardPlusRenderer extends renderer.Renderer {
             }
         });
 
+        // toon
+        this.toonUniformBuffer = renderer.device.createBuffer({
+            label: "toon uniform",
+            size: 16,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+        });
+        renderer.device.queue.writeBuffer(
+            this.toonUniformBuffer, 0,
+            new Float32Array([this.toonNumBands, this.toonEdgeThreshold, this.toonOutlineStrength, 0]));
+
+        const toonLayout = renderer.device.createBindGroupLayout({
+            label: "toon bind group layout",
+            entries: [
+                { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "unfilterable-float" } },
+                { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "depth" } },
+                { binding: 2, visibility: GPUShaderStage.COMPUTE, storageTexture: { format: "rgba8unorm", access: "write-only" } },
+                { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+            ]
+        });
+
+        this.toonSceneBindGroup = renderer.device.createBindGroup({
+            label: "toon scene bind group",
+            layout: toonLayout,
+            entries: [
+                { binding: 0, resource: this.sceneColorTexture.createView() },
+                { binding: 1, resource: this.depthTextureView },
+                { binding: 2, resource: this.toonTexture.createView() },
+                { binding: 3, resource: { buffer: this.toonUniformBuffer } },
+            ]
+        });
+
+        this.toonFinalBindGroup = renderer.device.createBindGroup({
+            label: "toon final bind group",
+            layout: toonLayout,
+            entries: [
+                { binding: 0, resource: this.finalTexture.createView() },
+                { binding: 1, resource: this.depthTextureView },
+                { binding: 2, resource: this.toonTexture.createView() },
+                { binding: 3, resource: { buffer: this.toonUniformBuffer } },
+            ]
+        });
+
+        this.toonPipeline = renderer.device.createComputePipeline({
+            label: "toon pipeline",
+            layout: renderer.device.createPipelineLayout({ bindGroupLayouts: [toonLayout] }),
+            compute: {
+                module: renderer.device.createShaderModule({
+                    label: "toon compute shader",
+                    code: shaders.toonSrc
+                }),
+                entryPoint: "main"
+            }
+        });
+
         // blit --> canvas
         const blitLayout = renderer.device.createBindGroupLayout({
             label: "blit bind group layout",
@@ -295,6 +370,12 @@ export class ForwardPlusRenderer extends renderer.Renderer {
             label: "blit final bind group",
             layout: blitLayout,
             entries: [{ binding: 0, resource: this.finalTexture.createView() }]
+        });
+
+        this.blitToonBindGroup = renderer.device.createBindGroup({
+            label: "blit toon bind group",
+            layout: blitLayout,
+            entries: [{ binding: 0, resource: this.toonTexture.createView() }]
         });
 
         this.blitPipeline = renderer.device.createRenderPipeline({
@@ -328,6 +409,17 @@ export class ForwardPlusRenderer extends renderer.Renderer {
             this.brightUniformBuffer, 0, new Float32Array([threshold, 0, 0, 0]));
         renderer.device.queue.writeBuffer(
             this.compositeUniformBuffer, 0, new Float32Array([intensity, 0, 0, 0]));
+    }
+
+    setToonEnabled(enabled: boolean) { this.toonEnabled = enabled; }
+
+    setToonParams(numBands: number, edgeThreshold: number, outlineStrength: number) {
+        this.toonNumBands = numBands;
+        this.toonEdgeThreshold = edgeThreshold;
+        this.toonOutlineStrength = outlineStrength;
+        renderer.device.queue.writeBuffer(
+            this.toonUniformBuffer, 0,
+            new Float32Array([numBands, edgeThreshold, outlineStrength, 0]));
     }
 
     override draw() {
@@ -370,32 +462,46 @@ export class ForwardPlusRenderer extends renderer.Renderer {
 
         renderPass.end();
 
-        // bloom compute passes (skip if disabled)
+        // post-processing chain
+        const wg = shaders.constants.bloomWorkgroupSize;
+        const wgX = Math.ceil(renderer.canvas.width / wg);
+        const wgY = Math.ceil(renderer.canvas.height / wg);
+
         let blitSourceBindGroup = this.blitSceneBindGroup;
-        if (this.bloomEnabled) {
-            const wg = shaders.constants.bloomWorkgroupSize;
-            const wgX = Math.ceil(renderer.canvas.width / wg);
-            const wgY = Math.ceil(renderer.canvas.height / wg);
 
-            const bp = encoder.beginComputePass({ label: "bloom compute pass" });
+        if (this.bloomEnabled || this.toonEnabled) {
+            const bp = encoder.beginComputePass({ label: "post-process compute pass" });
 
-            bp.setPipeline(this.brightPipeline);
-            bp.setBindGroup(0, this.brightBindGroup);
-            bp.dispatchWorkgroups(wgX, wgY);
+            if (this.bloomEnabled) {
+                bp.setPipeline(this.brightPipeline);
+                bp.setBindGroup(0, this.brightBindGroup);
+                bp.dispatchWorkgroups(wgX, wgY);
 
-            bp.setPipeline(this.blurPipeline);
-            bp.setBindGroup(0, this.blurHBindGroup);
-            bp.dispatchWorkgroups(wgX, wgY);
-            bp.setBindGroup(0, this.blurVBindGroup);
-            bp.dispatchWorkgroups(wgX, wgY);
+                bp.setPipeline(this.blurPipeline);
+                bp.setBindGroup(0, this.blurHBindGroup);
+                bp.dispatchWorkgroups(wgX, wgY);
+                bp.setBindGroup(0, this.blurVBindGroup);
+                bp.dispatchWorkgroups(wgX, wgY);
 
-            bp.setPipeline(this.compositePipeline);
-            bp.setBindGroup(0, this.compositeBindGroup);
-            bp.dispatchWorkgroups(wgX, wgY);
+                bp.setPipeline(this.compositePipeline);
+                bp.setBindGroup(0, this.compositeBindGroup);
+                bp.dispatchWorkgroups(wgX, wgY);
+            }
+
+            if (this.toonEnabled) {
+                bp.setPipeline(this.toonPipeline);
+                bp.setBindGroup(0,
+                    this.bloomEnabled ? this.toonFinalBindGroup : this.toonSceneBindGroup);
+                bp.dispatchWorkgroups(wgX, wgY);
+            }
 
             bp.end();
 
-            blitSourceBindGroup = this.blitFinalBindGroup;
+            if (this.toonEnabled) {
+                blitSourceBindGroup = this.blitToonBindGroup;
+            } else if (this.bloomEnabled) {
+                blitSourceBindGroup = this.blitFinalBindGroup;
+            }
         }
 
         // blit --> canvas

@@ -21,6 +21,8 @@ import bloomBlurRaw from './bloom_blur.cs.wgsl?raw';
 import bloomCompositeRaw from './bloom_composite.cs.wgsl?raw';
 import blitFragRaw from './blit.fs.wgsl?raw';
 
+import toonRaw from './toon.cs.wgsl?raw';
+
 // CONSTANTS (for use in shaders)
 // =================================
 
@@ -46,6 +48,9 @@ export const constants = {
 
     // bloom
     bloomWorkgroupSize: 8,
+
+    // toon
+    toonEdgeThreshold: 0.02,
 };
 
 // =================================
@@ -87,3 +92,5 @@ export const bloomBrightSrc: string = processShaderRaw(bloomBrightRaw);
 export const bloomBlurSrc: string = processShaderRaw(bloomBlurRaw);
 export const bloomCompositeSrc: string = processShaderRaw(bloomCompositeRaw);
 export const blitFragSrc: string = processShaderRaw(blitFragRaw);
+
+export const toonSrc: string = processShaderRaw(toonRaw);
