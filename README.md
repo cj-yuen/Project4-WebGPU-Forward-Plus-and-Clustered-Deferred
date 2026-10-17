@@ -12,9 +12,12 @@ WebGL Forward+ and Clustered Deferred Shading
 
 [![](https://github.com/user-attachments/assets/79ed5a4d-97b0-45d7-8627-b006d377726a)](https://cj-yuen.github.io/Project4-WebGPU-Forward-Plus-and-Clustered-Deferred/)
 
-### Demo Video/GIF
+### GIF
+![Demo Gif Thumbnail](/demo_gif.gif)
 
-[![]()]()
+### Demo Video
+[![Demo Video Thumbnail](https://img.youtube.com/vi/sMJkOujd1T0/maxresdefault.jpg)](https://youtu.be/sMJkOujd1T0)
+
 
 ## Overview
 This project implements three renderers in WebGPU that renders the Sponza atrium scene with up to 5000 moving point lights. Each renderer represents different tradeoffs between per-fragment light cost, memory bandwidth, and implementation complexity.
